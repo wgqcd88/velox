@@ -20,8 +20,23 @@
 #include "velox/connectors/hive/storage_adapters/abfs/AbfsUtil.h"
 
 #include <azure/identity/client_secret_credential.hpp>
+#include <azure/identity/workload_identity_credential.hpp>
+#include <cstdlib>
 
 namespace facebook::velox::filesystems {
+
+namespace {
+
+std::string requiredEnv(const char* name) {
+  const auto* value = std::getenv(name);
+  VELOX_USER_CHECK(
+      value != nullptr && value[0] != '\0',
+      "Environment variable {} must be set for Azure Workload Identity authentication.",
+      name);
+  return value;
+}
+
+} // namespace
 
 std::function<std::unique_ptr<AzureDataLakeFileClient>()>
     AbfsConfig::testWriteClientFn_;
@@ -141,9 +156,20 @@ AbfsConfig::AbfsConfig(
     auto sasKey = fmt::format("{}.{}", kAzureSASKey, accountNameWithSuffix_);
     VELOX_USER_CHECK(config.valueExists(sasKey), "Config {} not found", sasKey);
     sas_ = config.get<std::string>(sasKey).value();
+  } else if (authType_ == kAzureWorkloadIdentityAuthType) {
+    Azure::Identity::WorkloadIdentityCredentialOptions options;
+    if (const auto* authorityHost = std::getenv("AZURE_AUTHORITY_HOST")) {
+      options.AuthorityHost = authorityHost;
+    }
+    tokenCredential_ =
+        std::make_shared<Azure::Identity::WorkloadIdentityCredential>(
+            requiredEnv("AZURE_TENANT_ID"),
+            requiredEnv("AZURE_CLIENT_ID"),
+            requiredEnv("AZURE_FEDERATED_TOKEN_FILE"),
+            options);
   } else {
     VELOX_USER_FAIL(
-        "Unsupported auth type {}, supported auth types are SharedKey, OAuth and SAS.",
+        "Unsupported auth type {}, supported auth types are SharedKey, OAuth, SAS and WorkloadIdentity.",
         authType_);
   }
 }
@@ -152,7 +178,9 @@ std::unique_ptr<BlobClient> AbfsConfig::getReadFileClient() {
   if (authType_ == kAzureSASAuthType) {
     auto url = getUrl(true);
     return std::make_unique<BlobClient>(fmt::format("{}?{}", url, sas_));
-  } else if (authType_ == kAzureOAuthAuthType) {
+  } else if (
+      authType_ == kAzureOAuthAuthType ||
+      authType_ == kAzureWorkloadIdentityAuthType) {
     auto url = getUrl(true);
     return std::make_unique<BlobClient>(url, tokenCredential_);
   } else {
@@ -170,7 +198,9 @@ std::unique_ptr<AzureDataLakeFileClient> AbfsConfig::getWriteFileClient() {
     auto url = getUrl(false);
     client =
         std::make_unique<DataLakeFileClient>(fmt::format("{}?{}", url, sas_));
-  } else if (authType_ == kAzureOAuthAuthType) {
+  } else if (
+      authType_ == kAzureOAuthAuthType ||
+      authType_ == kAzureWorkloadIdentityAuthType) {
     auto url = getUrl(false);
     client = std::make_unique<DataLakeFileClient>(url, tokenCredential_);
   } else {

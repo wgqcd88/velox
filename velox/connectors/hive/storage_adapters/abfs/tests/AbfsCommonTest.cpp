@@ -21,8 +21,62 @@
 
 #include "gtest/gtest.h"
 
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <optional>
+#include <string>
+
 using namespace facebook::velox::filesystems;
 using namespace facebook::velox;
+
+namespace {
+
+class WorkloadIdentityTestEnvironment {
+ public:
+  WorkloadIdentityTestEnvironment() {
+    oldTenantId_ = getEnv("AZURE_TENANT_ID");
+    oldClientId_ = getEnv("AZURE_CLIENT_ID");
+    oldTokenFilePath_ = getEnv("AZURE_FEDERATED_TOKEN_FILE");
+    tokenFilePath_ = testing::TempDir() + "azure-federated-token";
+    std::ofstream(tokenFilePath_) << "token";
+    setenv("AZURE_TENANT_ID", "00000000-0000-0000-0000-000000000000", 1);
+    setenv("AZURE_CLIENT_ID", "11111111-1111-1111-1111-111111111111", 1);
+    setenv("AZURE_FEDERATED_TOKEN_FILE", tokenFilePath_.c_str(), 1);
+  }
+
+  ~WorkloadIdentityTestEnvironment() {
+    restoreEnv("AZURE_TENANT_ID", oldTenantId_);
+    restoreEnv("AZURE_CLIENT_ID", oldClientId_);
+    restoreEnv("AZURE_FEDERATED_TOKEN_FILE", oldTokenFilePath_);
+    ::remove(tokenFilePath_.c_str());
+  }
+
+ private:
+  static std::optional<std::string> getEnv(const char* name) {
+    if (const auto* value = std::getenv(name)) {
+      return value;
+    }
+    return std::nullopt;
+  }
+
+  static void restoreEnv(
+      const char* name,
+      const std::optional<std::string>& value) {
+    if (value.has_value()) {
+      setenv(name, value->c_str(), 1);
+    } else {
+      unsetenv(name);
+    }
+  }
+
+  std::string tokenFilePath_;
+  std::optional<std::string> oldTenantId_;
+  std::optional<std::string> oldClientId_;
+  std::optional<std::string> oldTokenFilePath_;
+};
+
+} // namespace
 
 TEST(AbfsUtilsTest, isAbfsFile) {
   EXPECT_FALSE(isAbfsFile("abfs:"));
@@ -41,7 +95,7 @@ TEST(AbfsConfigTest, authType) {
   VELOX_ASSERT_USER_THROW(
       std::make_unique<AbfsConfig>(
           "abfss://foo@efg.dfs.core.windows.net/test.txt", config),
-      "Unsupported auth type Custom, supported auth types are SharedKey, OAuth and SAS.");
+      "Unsupported auth type Custom, supported auth types are SharedKey, OAuth, SAS and WorkloadIdentity.");
 }
 
 TEST(AbfsConfigTest, clientSecretOAuth) {
@@ -110,6 +164,21 @@ TEST(AbfsConfigTest, sasToken) {
   EXPECT_EQ(
       writeClient->getUrl(),
       "http://bar.blob.core.windows.net/abc/file?sas=test");
+}
+
+TEST(AbfsConfigTest, workloadIdentity) {
+  WorkloadIdentityTestEnvironment workloadIdentityEnvironment;
+  const config::ConfigBase config(
+      {{"fs.azure.account.auth.type.bar.dfs.core.windows.net",
+        "WorkloadIdentity"}},
+      false);
+
+  auto abfsConfig =
+      AbfsConfig("abfss://abc@bar.dfs.core.windows.net/file", config);
+  auto readClient = abfsConfig.getReadFileClient();
+  EXPECT_EQ(readClient->GetUrl(), "https://bar.blob.core.windows.net/abc/file");
+  auto writeClient = abfsConfig.getWriteFileClient();
+  EXPECT_EQ(writeClient->getUrl(), "https://bar.blob.core.windows.net/abc/file");
 }
 
 TEST(AbfsConfigTest, sharedKey) {

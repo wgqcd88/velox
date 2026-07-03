@@ -36,7 +36,8 @@ namespace facebook::velox::filesystems {
 static constexpr const char* kAzureBlobEndpoint{"fs.azure.blob-endpoint"};
 
 // The authentication mechanism is set in `fs.azure.account.auth.type` (or the
-// account specific variant). The supported values are SharedKey, OAuth and SAS.
+// account specific variant). The supported values are SharedKey, OAuth, SAS and
+// WorkloadIdentity.
 static constexpr const char* kAzureAccountAuthType =
     "fs.azure.account.auth.type";
 
@@ -60,6 +61,9 @@ static constexpr const char* kAzureSharedKeyAuthType = "SharedKey";
 static constexpr const char* kAzureOAuthAuthType = "OAuth";
 
 static constexpr const char* kAzureSASAuthType = "SAS";
+
+static constexpr const char* kAzureWorkloadIdentityAuthType =
+    "WorkloadIdentity";
 
 class AbfsConfig {
  public:
