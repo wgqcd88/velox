@@ -17,10 +17,21 @@
 #include "velox/connectors/hive/storage_adapters/abfs/AzureClientProviderImpl.h"
 
 #include <azure/identity/client_secret_credential.hpp>
+#include <azure/identity/workload_identity_credential.hpp>
+#include <cstdlib>
 
 namespace facebook::velox::filesystems {
 
 namespace {
+
+std::string requiredEnv(const char* name) {
+  const auto* value = std::getenv(name);
+  VELOX_USER_CHECK(
+      value != nullptr && value[0] != '\0',
+      "Environment variable {} must be set for Azure Workload Identity authentication.",
+      name);
+  return value;
+}
 
 class DataLakeFileClientWrapper final : public AzureDataLakeFileClient {
  public:
@@ -235,6 +246,39 @@ void FixedSasAzureClientProvider::init(
       fmt::format("{}.{}", kAzureSASKey, abfsPath->accountNameWithSuffix());
   VELOX_USER_CHECK(config.valueExists(sasKey), "Config {} not found", sasKey);
   sas_ = config.get<std::string>(sasKey).value();
+}
+
+std::unique_ptr<AzureBlobClient>
+WorkloadIdentityAzureClientProvider::getReadFileClient(
+    const std::shared_ptr<AbfsPath>& abfsPath,
+    const config::ConfigBase& /*config*/) {
+  init();
+  const auto url = abfsPath->getUrl(true);
+  auto client = std::make_unique<BlobClient>(url, tokenCredential_);
+  return std::make_unique<BlobClientWrapper>(std::move(client));
+}
+
+std::unique_ptr<AzureDataLakeFileClient>
+WorkloadIdentityAzureClientProvider::getWriteFileClient(
+    const std::shared_ptr<AbfsPath>& abfsPath,
+    const config::ConfigBase& /*config*/) {
+  init();
+  const auto url = abfsPath->getUrl(false);
+  auto client = std::make_unique<DataLakeFileClient>(url, tokenCredential_);
+  return std::make_unique<DataLakeFileClientWrapper>(std::move(client));
+}
+
+void WorkloadIdentityAzureClientProvider::init() {
+  Azure::Identity::WorkloadIdentityCredentialOptions options;
+  if (const auto* authorityHost = std::getenv("AZURE_AUTHORITY_HOST")) {
+    options.AuthorityHost = authorityHost;
+  }
+  tokenCredential_ =
+      std::make_shared<Azure::Identity::WorkloadIdentityCredential>(
+          requiredEnv("AZURE_TENANT_ID"),
+          requiredEnv("AZURE_CLIENT_ID"),
+          requiredEnv("AZURE_FEDERATED_TOKEN_FILE"),
+          options);
 }
 
 } // namespace facebook::velox::filesystems

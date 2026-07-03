@@ -98,4 +98,21 @@ class FixedSasAzureClientProvider final : public AzureClientProvider {
   std::string sas_;
 };
 
+// AzureClientProvider for Azure Workload Identity authentication.
+class WorkloadIdentityAzureClientProvider final : public AzureClientProvider {
+ public:
+  std::unique_ptr<AzureBlobClient> getReadFileClient(
+      const std::shared_ptr<AbfsPath>& abfsPath,
+      const config::ConfigBase& config) override;
+
+  std::unique_ptr<AzureDataLakeFileClient> getWriteFileClient(
+      const std::shared_ptr<AbfsPath>& abfsPath,
+      const config::ConfigBase& config) override;
+
+ private:
+  void init();
+
+  std::shared_ptr<Azure::Core::Credentials::TokenCredential> tokenCredential_;
+};
+
 } // namespace facebook::velox::filesystems
