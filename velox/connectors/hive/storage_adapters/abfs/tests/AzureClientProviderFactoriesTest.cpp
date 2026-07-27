@@ -150,7 +150,26 @@ TEST(AzureClientProviderFactoriesTest, registerFromConfig) {
   }
 
   {
-    // WorkloadIdentity auth type.
+    // Workload Identity using Hadoop's OAuth token provider configuration.
+    WorkloadIdentityTestEnvironment workloadIdentityEnvironment;
+    const config::ConfigBase config(
+        {{"fs.azure.account.auth.type.efg.dfs.core.windows.net", "OAuth"},
+         {"fs.azure.account.oauth.provider.type.efg.dfs.core.windows.net",
+          "org.apache.hadoop.fs.azurebfs.oauth2."
+          "WorkloadIdentityTokenProvider"}},
+        false);
+    registerAzureClientProvider(config);
+
+    ASSERT_NE(
+        AzureClientProviderFactories::getReadFileClient(abfsPath, config),
+        nullptr);
+    ASSERT_NE(
+        AzureClientProviderFactories::getWriteFileClient(abfsPath, config),
+        nullptr);
+  }
+
+  {
+    // Legacy WorkloadIdentity auth type.
     WorkloadIdentityTestEnvironment workloadIdentityEnvironment;
     const config::ConfigBase config(
         {{"fs.azure.account.auth.type.efg.dfs.core.windows.net",

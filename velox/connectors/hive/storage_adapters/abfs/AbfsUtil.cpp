@@ -34,7 +34,17 @@ std::vector<CacheKey> extractCacheKeyFromConfig(
           std::string_view::npos,
           "Invalid Azure account auth type key: {}",
           key);
-      cacheKeys.emplace_back(CacheKey{remaining.substr(0, dot), value});
+      auto authType = value;
+      if (authType == kAzureOAuthAuthType) {
+        const auto providerKey = fmt::format(
+            "{}.{}", kAzureAccountOAuthProviderType, remaining);
+        if (config.valueExists(providerKey) &&
+            config.get<std::string>(providerKey).value() ==
+                kAzureWorkloadIdentityTokenProvider) {
+          authType = kAzureWorkloadIdentityAuthType;
+        }
+      }
+      cacheKeys.emplace_back(CacheKey{remaining.substr(0, dot), authType});
     }
   }
   return cacheKeys;

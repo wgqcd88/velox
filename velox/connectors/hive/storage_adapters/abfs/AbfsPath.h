@@ -30,7 +30,8 @@ static constexpr const char* kAzureBlobEndpoint{"fs.azure.blob-endpoint"};
 
 // The authentication mechanism is set in `fs.azure.account.auth.type` (or the
 // account specific variant). The supported values are SharedKey, OAuth, SAS and
-// WorkloadIdentity.
+// WorkloadIdentity. Workload Identity can also be configured using OAuth with
+// Hadoop's WorkloadIdentityTokenProvider.
 static constexpr const char* kAzureAccountAuthType =
     "fs.azure.account.auth.type";
 
@@ -48,6 +49,12 @@ static constexpr const char* kAzureAccountOAuth2ClientSecret =
 // https://login.microsoftonline.com/{TENANTID}/oauth2/token
 static constexpr const char* kAzureAccountOAuth2ClientEndpoint =
     "fs.azure.account.oauth2.client.endpoint";
+
+static constexpr const char* kAzureAccountOAuthProviderType =
+    "fs.azure.account.oauth.provider.type";
+
+static constexpr const char* kAzureWorkloadIdentityTokenProvider =
+    "org.apache.hadoop.fs.azurebfs.oauth2.WorkloadIdentityTokenProvider";
 
 static constexpr const char* kAzureSharedKeyAuthType = "SharedKey";
 
