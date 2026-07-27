@@ -69,34 +69,32 @@ void registerAbfsFileSystem() {
 void registerAzureClientProvider(const config::ConfigBase& config) {
 #ifdef VELOX_ENABLE_ABFS
 
+  AzureClientProviderFactoryMap factories;
   for (const auto& [accountName, authType] :
        extractCacheKeyFromConfig(config)) {
     if (authType == kAzureSharedKeyAuthType) {
-      AzureClientProviderFactories::registerFactory(
-          accountName, [](const std::string&) {
-            return std::make_unique<SharedKeyAzureClientProvider>();
-          });
+      factories.insert_or_assign(accountName, [](const std::string&) {
+        return std::make_unique<SharedKeyAzureClientProvider>();
+      });
     } else if (authType == kAzureOAuthAuthType) {
-      AzureClientProviderFactories::registerFactory(
-          accountName, [](const std::string&) {
-            return std::make_unique<OAuthAzureClientProvider>();
-          });
+      factories.insert_or_assign(accountName, [](const std::string&) {
+        return std::make_unique<OAuthAzureClientProvider>();
+      });
     } else if (authType == kAzureSASAuthType) {
-      AzureClientProviderFactories::registerFactory(
-          accountName, [](const std::string&) {
-            return std::make_unique<FixedSasAzureClientProvider>();
-          });
+      factories.insert_or_assign(accountName, [](const std::string&) {
+        return std::make_unique<FixedSasAzureClientProvider>();
+      });
     } else if (authType == kAzureWorkloadIdentityAuthType) {
-      AzureClientProviderFactories::registerFactory(
-          accountName, [](const std::string&) {
-            return std::make_unique<WorkloadIdentityAzureClientProvider>();
-          });
+      factories.insert_or_assign(accountName, [](const std::string&) {
+        return std::make_unique<WorkloadIdentityAzureClientProvider>();
+      });
     } else {
       VELOX_USER_FAIL(
           "Unsupported auth type {}, supported auth types are SharedKey, OAuth, SAS and WorkloadIdentity.",
           authType);
     }
   }
+  AzureClientProviderFactories::setConfiguredFactories(std::move(factories));
 #endif
 }
 

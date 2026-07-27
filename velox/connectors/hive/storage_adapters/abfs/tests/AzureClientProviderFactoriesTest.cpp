@@ -186,6 +186,34 @@ TEST(AzureClientProviderFactoriesTest, registerFromConfig) {
   }
 
   {
+    // Account-specific auth takes precedence over global auth, while other
+    // accounts use the global configuration.
+    WorkloadIdentityTestEnvironment workloadIdentityEnvironment;
+    const config::ConfigBase config(
+        {{"fs.azure.account.auth.type", "OAuth"},
+         {"fs.azure.account.oauth.provider.type",
+          "org.apache.hadoop.fs.azurebfs.oauth2."
+          "WorkloadIdentityTokenProvider"},
+         {"fs.azure.account.auth.type.efg.dfs.core.windows.net", "SAS"},
+         {"fs.azure.sas.fixed.token.efg.dfs.core.windows.net", "sas=test"}},
+        false);
+    registerAzureClientProvider(config);
+
+    EXPECT_EQ(
+        AzureClientProviderFactories::getReadFileClient(abfsPath, config)
+            ->getUrl(),
+        "https://efg.blob.core.windows.net/abc/file/test.txt?sas=test");
+
+    const auto defaultAuthPath = std::make_shared<AbfsPath>(
+        "abfss://abc@other.dfs.core.windows.net/file/test.txt");
+    EXPECT_EQ(
+        AzureClientProviderFactories::getReadFileClient(defaultAuthPath, config)
+            ->getUrl(),
+        "https://other.blob.core.windows.net/abc/file/test.txt");
+    registerAzureClientProvider(config::ConfigBase({}));
+  }
+
+  {
     // Invalid auth type.
     const config::ConfigBase config(
         {{"fs.azure.account.auth.type.efg.dfs.core.windows.net", "Custom"},
@@ -209,16 +237,17 @@ TEST(AzureClientProviderFactoriesTest, registerFromConfig) {
 }
 
 TEST(AzureClientProviderFactoriesTest, registerCustomFactory) {
-  static const std::string path = "abfs://test@efg.dfs.core.windows.net/test";
+  static const std::string path =
+      "abfs://test@custom.dfs.core.windows.net/test";
   const auto abfsPath = std::make_shared<AbfsPath>(path);
 
   registerAzureClientProviderFactory(
-      "efg",
+      "custom",
       [](const std::string& account) -> std::unique_ptr<AzureClientProvider> {
         return std::make_unique<DummyAzureClientProvider>();
       });
 
-  ASSERT_NO_THROW(AzureClientProviderFactories::getClientFactory("efg"));
+  ASSERT_NO_THROW(AzureClientProviderFactories::getClientFactory("custom"));
   VELOX_ASSERT_THROW(
       AzureClientProviderFactories::getReadFileClient(
           abfsPath, config::ConfigBase({})),
@@ -229,6 +258,7 @@ TEST(AzureClientProviderFactoriesTest, registerCustomFactory) {
       "DummyAzureClientProvider: Not implemented.");
 
   VELOX_ASSERT_THROW(
-      AzureClientProviderFactories::getClientFactory("efg2"),
-      "No AzureClientProviderFactory registered for account 'efg2'.");
+      AzureClientProviderFactories::getClientFactory("unregistered"),
+      "No AzureClientProviderFactory registered for account 'unregistered' and "
+      "no default factory is registered.");
 }

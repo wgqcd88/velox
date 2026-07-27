@@ -29,6 +29,7 @@ constexpr std::string_view kAbfssScheme{"abfss://"};
 class ConfigBase;
 
 struct CacheKey {
+  // Empty accountName represents the global default authentication type.
   const std::string accountName;
   const std::string authType;
 

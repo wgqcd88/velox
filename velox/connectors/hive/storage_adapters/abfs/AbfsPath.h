@@ -28,10 +28,11 @@ namespace facebook::velox::filesystems {
 // This is used to specify the Azurite endpoint in testing.
 static constexpr const char* kAzureBlobEndpoint{"fs.azure.blob-endpoint"};
 
-// The authentication mechanism is set in `fs.azure.account.auth.type` (or the
-// account specific variant). The supported values are SharedKey, OAuth, SAS and
-// WorkloadIdentity. Workload Identity can also be configured using OAuth with
-// Hadoop's WorkloadIdentityTokenProvider.
+// The authentication mechanism is set in `fs.azure.account.auth.type` or its
+// account-specific variant, which takes precedence over the global setting.
+// The supported values are SharedKey, OAuth, SAS and WorkloadIdentity. Workload
+// Identity can also be configured using OAuth with Hadoop's
+// WorkloadIdentityTokenProvider.
 static constexpr const char* kAzureAccountAuthType =
     "fs.azure.account.auth.type";
 

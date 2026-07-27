@@ -23,13 +23,15 @@ namespace facebook::velox::filesystems {
 
 namespace {
 
-folly::Synchronized<
-    std::unordered_map<std::string, AzureClientProviderFactory>>&
+struct AzureClientProviderFactoryRegistry {
+  AzureClientProviderFactoryMap customFactories;
+  AzureClientProviderFactoryMap configuredFactories;
+};
+
+folly::Synchronized<AzureClientProviderFactoryRegistry>&
 azureClientFactoryRegistry() {
-  static folly::Synchronized<
-      std::unordered_map<std::string, AzureClientProviderFactory>>
-      factories;
-  return factories;
+  static folly::Synchronized<AzureClientProviderFactoryRegistry> registry;
+  return registry;
 }
 
 } // namespace
@@ -37,22 +39,44 @@ azureClientFactoryRegistry() {
 void AzureClientProviderFactories::registerFactory(
     const std::string& account,
     const AzureClientProviderFactory& factory) {
-  azureClientFactoryRegistry().withWLock([&](auto& factories) {
-    auto [_, inserted] = factories.insert_or_assign(account, factory);
+  azureClientFactoryRegistry().withWLock([&](auto& registry) {
+    auto [_, inserted] =
+        registry.customFactories.insert_or_assign(account, factory);
     LOG_IF(INFO, !inserted) << "AzureClientProviderFactory for account '"
                             << account << "' has been overridden.";
+  });
+}
+
+void AzureClientProviderFactories::setConfiguredFactories(
+    AzureClientProviderFactoryMap factories) {
+  azureClientFactoryRegistry().withWLock([&](auto& registry) {
+    registry.configuredFactories = std::move(factories);
   });
 }
 
 AzureClientProviderFactory AzureClientProviderFactories::getClientFactory(
     const std::string& account) {
   return azureClientFactoryRegistry().withRLock(
-      [&](const auto& factories) -> AzureClientProviderFactory {
-        if (auto it = factories.find(account); it != factories.end()) {
+      [&](const auto& registry) -> AzureClientProviderFactory {
+        if (auto it = registry.customFactories.find(account);
+            it != registry.customFactories.end()) {
+          return it->second;
+        }
+        if (auto it = registry.configuredFactories.find(account);
+            it != registry.configuredFactories.end()) {
+          return it->second;
+        }
+        if (auto it = registry.customFactories.find("");
+            it != registry.customFactories.end()) {
+          return it->second;
+        }
+        if (auto it = registry.configuredFactories.find("");
+            it != registry.configuredFactories.end()) {
           return it->second;
         }
         VELOX_USER_FAIL(
-            "No AzureClientProviderFactory registered for account '{}'."
+            "No AzureClientProviderFactory registered for account '{}' and no "
+            "default factory is registered. "
             "Please use `registerAzureClientProvider` or "
             "`registerAzureClientProviderFactory` to register a factory for "
             "the account before using it.",

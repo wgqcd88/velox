@@ -15,37 +15,72 @@
  */
 
 #include "velox/connectors/hive/storage_adapters/abfs/AbfsUtil.h"
+
+#include <optional>
+
 #include "velox/common/config/Config.h"
 #include "velox/connectors/hive/storage_adapters/abfs/AbfsPath.h"
 
 namespace facebook::velox::filesystems {
 
+namespace {
+
+std::string resolveAuthType(
+    const config::ConfigBase& config,
+    const std::string& authType,
+    std::optional<std::string_view> accountNameWithSuffix) {
+  if (authType != kAzureOAuthAuthType) {
+    return authType;
+  }
+
+  std::optional<std::string> providerType;
+  if (accountNameWithSuffix.has_value()) {
+    const auto providerKey = fmt::format(
+        "{}.{}", kAzureAccountOAuthProviderType, accountNameWithSuffix.value());
+    providerType = config.get<std::string>(providerKey);
+  }
+  if (!providerType.has_value()) {
+    providerType =
+        config.get<std::string>(kAzureAccountOAuthProviderType);
+  }
+  if (providerType.has_value() &&
+      providerType.value() == kAzureWorkloadIdentityTokenProvider) {
+    return kAzureWorkloadIdentityAuthType;
+  }
+  return authType;
+}
+
+} // namespace
+
 std::vector<CacheKey> extractCacheKeyFromConfig(
     const config::ConfigBase& config) {
   std::vector<CacheKey> cacheKeys;
   constexpr std::string_view authTypePrefix{kAzureAccountAuthType};
+  const auto accountAuthTypePrefix = fmt::format("{}.", authTypePrefix);
   for (const auto& [key, value] : config.rawConfigs()) {
-    if (key.find(authTypePrefix) == 0) {
-      // Extract the accountName after "fs.azure.account.auth.type.".
-      auto remaining = std::string_view(key).substr(authTypePrefix.size() + 1);
-      auto dot = remaining.find(".");
-      VELOX_USER_CHECK_NE(
-          dot,
-          std::string_view::npos,
-          "Invalid Azure account auth type key: {}",
-          key);
-      auto authType = value;
-      if (authType == kAzureOAuthAuthType) {
-        const auto providerKey = fmt::format(
-            "{}.{}", kAzureAccountOAuthProviderType, remaining);
-        if (config.valueExists(providerKey) &&
-            config.get<std::string>(providerKey).value() ==
-                kAzureWorkloadIdentityTokenProvider) {
-          authType = kAzureWorkloadIdentityAuthType;
-        }
-      }
-      cacheKeys.emplace_back(CacheKey{remaining.substr(0, dot), authType});
+    if (key.find(accountAuthTypePrefix) != 0) {
+      continue;
     }
+    // Extract the accountName after "fs.azure.account.auth.type.".
+    auto remaining =
+        std::string_view(key).substr(accountAuthTypePrefix.size());
+    auto dot = remaining.find(".");
+    VELOX_USER_CHECK_NE(
+        dot,
+        std::string_view::npos,
+        "Invalid Azure account auth type key: {}",
+        key);
+    cacheKeys.emplace_back(CacheKey{
+        remaining.substr(0, dot),
+        resolveAuthType(config, value, remaining)});
+  }
+
+  if (const auto globalAuthType =
+          config.get<std::string>(kAzureAccountAuthType)) {
+    cacheKeys.emplace_back(
+        CacheKey{
+            "",
+            resolveAuthType(config, globalAuthType.value(), std::nullopt)});
   }
   return cacheKeys;
 }
