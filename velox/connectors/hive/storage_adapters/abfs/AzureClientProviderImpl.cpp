@@ -270,15 +270,14 @@ WorkloadIdentityAzureClientProvider::getWriteFileClient(
 
 void WorkloadIdentityAzureClientProvider::init() {
   Azure::Identity::WorkloadIdentityCredentialOptions options;
+  options.TenantId = requiredEnv("AZURE_TENANT_ID");
+  options.ClientId = requiredEnv("AZURE_CLIENT_ID");
+  options.TokenFilePath = requiredEnv("AZURE_FEDERATED_TOKEN_FILE");
   if (const auto* authorityHost = std::getenv("AZURE_AUTHORITY_HOST")) {
     options.AuthorityHost = authorityHost;
   }
   tokenCredential_ =
-      std::make_shared<Azure::Identity::WorkloadIdentityCredential>(
-          requiredEnv("AZURE_TENANT_ID"),
-          requiredEnv("AZURE_CLIENT_ID"),
-          requiredEnv("AZURE_FEDERATED_TOKEN_FILE"),
-          options);
+      std::make_shared<Azure::Identity::WorkloadIdentityCredential>(options);
 }
 
 } // namespace facebook::velox::filesystems
