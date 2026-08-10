@@ -17,6 +17,7 @@
 #include "velox/connectors/hive/storage_adapters/abfs/AzureClientProviderImpl.h"
 
 #include <azure/identity/client_secret_credential.hpp>
+#include <azure/identity/managed_identity_credential.hpp>
 #include <azure/identity/workload_identity_credential.hpp>
 #include <cstdlib>
 
@@ -31,6 +32,17 @@ std::string requiredEnv(const char* name) {
       "Environment variable {} must be set for Azure Workload Identity authentication.",
       name);
   return value;
+}
+
+std::string getAccountConfig(
+    const config::ConfigBase& config,
+    const char* key,
+    const std::string& accountNameWithSuffix) {
+  const auto accountKey = fmt::format("{}.{}", key, accountNameWithSuffix);
+  if (auto value = config.get<std::string>(accountKey)) {
+    return value.value();
+  }
+  return config.get<std::string>(key).value_or("");
 }
 
 class DataLakeFileClientWrapper final : public AzureDataLakeFileClient {
@@ -278,6 +290,47 @@ void WorkloadIdentityAzureClientProvider::init() {
   }
   tokenCredential_ =
       std::make_shared<Azure::Identity::WorkloadIdentityCredential>(options);
+}
+
+std::unique_ptr<AzureBlobClient>
+ManagedIdentityAzureClientProvider::getReadFileClient(
+    const std::shared_ptr<AbfsPath>& abfsPath,
+    const config::ConfigBase& config) {
+  init(abfsPath, config);
+  const auto url = abfsPath->getUrl(true);
+  auto client = std::make_unique<BlobClient>(url, tokenCredential_);
+  return std::make_unique<BlobClientWrapper>(std::move(client));
+}
+
+std::unique_ptr<AzureDataLakeFileClient>
+ManagedIdentityAzureClientProvider::getWriteFileClient(
+    const std::shared_ptr<AbfsPath>& abfsPath,
+    const config::ConfigBase& config) {
+  init(abfsPath, config);
+  const auto url = abfsPath->getUrl(false);
+  auto client = std::make_unique<DataLakeFileClient>(url, tokenCredential_);
+  return std::make_unique<DataLakeFileClientWrapper>(std::move(client));
+}
+
+std::pair<std::string, std::string>
+ManagedIdentityAzureClientProvider::tenantIdAndClientId(
+    const std::shared_ptr<AbfsPath>& abfsPath,
+    const config::ConfigBase& config) {
+  init(abfsPath, config);
+  return {tenantId_, clientId_};
+}
+
+void ManagedIdentityAzureClientProvider::init(
+    const std::shared_ptr<AbfsPath>& abfsPath,
+    const config::ConfigBase& config) {
+  // The Azure SDK credential does not consume tenant ID, but read it to
+  // preserve compatibility with Hadoop ABFS Managed Identity configuration.
+  tenantId_ = getAccountConfig(
+      config, kAzureAccountOAuth2MsiTenant, abfsPath->accountNameWithSuffix());
+  clientId_ = getAccountConfig(
+      config, kAzureAccountOAuth2ClientId, abfsPath->accountNameWithSuffix());
+  tokenCredential_ =
+      std::make_shared<Azure::Identity::ManagedIdentityCredential>(clientId_);
 }
 
 } // namespace facebook::velox::filesystems

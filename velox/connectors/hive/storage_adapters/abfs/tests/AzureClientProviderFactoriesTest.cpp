@@ -186,6 +186,119 @@ TEST(AzureClientProviderFactoriesTest, registerFromConfig) {
   }
 
   {
+    // Account-specific and global Workload Identity aliases.
+    WorkloadIdentityTestEnvironment workloadIdentityEnvironment;
+    const config::ConfigBase config(
+        {{"fs.azure.account.auth.type", "wi"},
+         {"fs.azure.account.auth.type.efg.dfs.core.windows.net", "wi"}},
+        false);
+    registerAzureClientProvider(config);
+
+    ASSERT_NE(
+        AzureClientProviderFactories::getReadFileClient(abfsPath, config),
+        nullptr);
+    ASSERT_NE(
+        AzureClientProviderFactories::getWriteFileClient(abfsPath, config),
+        nullptr);
+    const auto otherAccountPath = std::make_shared<AbfsPath>(
+        "abfss://abc@other.dfs.core.windows.net/file/test.txt");
+    ASSERT_NE(
+        AzureClientProviderFactories::getReadFileClient(
+            otherAccountPath, config),
+        nullptr);
+  }
+
+  {
+    // Account-specific Managed Identity alias.
+    const config::ConfigBase config(
+        {{"fs.azure.account.auth.type.efg.dfs.core.windows.net", "mi"},
+         {"fs.azure.account.oauth2.msi.tenant.efg.dfs.core.windows.net",
+          "tenant"},
+         {"fs.azure.account.oauth2.client.id.efg.dfs.core.windows.net",
+          "client"}},
+        false);
+    registerAzureClientProvider(config);
+
+    ASSERT_NE(
+        AzureClientProviderFactories::getReadFileClient(abfsPath, config),
+        nullptr);
+    ASSERT_NE(
+        AzureClientProviderFactories::getWriteFileClient(abfsPath, config),
+        nullptr);
+  }
+
+  {
+    // Global Managed Identity using Hadoop's provider class as the auth type.
+    const config::ConfigBase config(
+        {{"fs.azure.account.auth.type",
+          "org.apache.hadoop.fs.azurebfs.oauth2.MsiTokenProvider"},
+         {"fs.azure.account.oauth2.msi.tenant", "tenant"},
+         {"fs.azure.account.oauth2.client.id", "client"}},
+        false);
+    registerAzureClientProvider(config);
+
+    ASSERT_NE(
+        AzureClientProviderFactories::getReadFileClient(abfsPath, config),
+        nullptr);
+    ASSERT_NE(
+        AzureClientProviderFactories::getWriteFileClient(abfsPath, config),
+        nullptr);
+  }
+
+  {
+    // Managed Identity using Hadoop's OAuth token provider configuration.
+    const config::ConfigBase config(
+        {{"fs.azure.account.auth.type.efg.dfs.core.windows.net", "OAuth"},
+         {"fs.azure.account.oauth.provider.type.efg.dfs.core.windows.net",
+          "org.apache.hadoop.fs.azurebfs.oauth2.MsiTokenProvider"}},
+        false);
+    registerAzureClientProvider(config);
+
+    ASSERT_NE(
+        AzureClientProviderFactories::getReadFileClient(abfsPath, config),
+        nullptr);
+    ASSERT_NE(
+        AzureClientProviderFactories::getWriteFileClient(abfsPath, config),
+        nullptr);
+  }
+
+  {
+    // Velox settings take precedence over Hadoop settings. Account-specific
+    // Velox settings take precedence over the global Velox setting.
+    WorkloadIdentityTestEnvironment workloadIdentityEnvironment;
+    const config::ConfigBase config(
+        {{"velox.azure.auth.type", "mi"},
+         {"velox.azure.auth.type.efg.dfs.core.windows.net", "wi"},
+         {"fs.azure.account.auth.type", "SAS"},
+         {"fs.azure.account.auth.type.other.dfs.core.windows.net", "SAS"},
+         {"fs.azure.sas.fixed.token.other.dfs.core.windows.net", "sas=test"}},
+        false);
+    registerAzureClientProvider(config);
+
+    auto accountProvider =
+        AzureClientProviderFactories::getClientFactory("efg")("efg");
+    EXPECT_NE(
+        dynamic_cast<WorkloadIdentityAzureClientProvider*>(
+            accountProvider.get()),
+        nullptr);
+
+    auto globalProvider =
+        AzureClientProviderFactories::getClientFactory("other")("other");
+    EXPECT_NE(
+        dynamic_cast<ManagedIdentityAzureClientProvider*>(
+            globalProvider.get()),
+        nullptr);
+
+    const auto otherAccountPath = std::make_shared<AbfsPath>(
+        "abfss://abc@other.dfs.core.windows.net/file/test.txt");
+    EXPECT_EQ(
+        AzureClientProviderFactories::getReadFileClient(
+            otherAccountPath, config)
+            ->getUrl(),
+        "https://other.blob.core.windows.net/abc/file/test.txt");
+  }
+
+  {
     // Account-specific auth takes precedence over global auth, while other
     // accounts use the global configuration.
     WorkloadIdentityTestEnvironment workloadIdentityEnvironment;
@@ -221,7 +334,7 @@ TEST(AzureClientProviderFactoriesTest, registerFromConfig) {
         false);
     VELOX_ASSERT_THROW(
         registerAzureClientProvider(config),
-        "Unsupported auth type Custom, supported auth types are SharedKey, OAuth, SAS and WorkloadIdentity.");
+        "Unsupported auth type Custom, supported auth types are SharedKey, OAuth, SAS, WorkloadIdentity and ManagedIdentity.");
   }
 
   {

@@ -180,6 +180,38 @@ TEST(AzureClientProviderTest, workloadIdentity) {
   EXPECT_EQ(writeClient->getUrl(), "https://bar.blob.core.windows.net/abc/file");
 }
 
+TEST(AzureClientProviderTest, managedIdentity) {
+  const config::ConfigBase config(
+      {{"fs.azure.account.oauth2.msi.tenant", "global-tenant"},
+       {"fs.azure.account.oauth2.client.id", "global-client"},
+       {"fs.azure.account.oauth2.msi.tenant.bar.dfs.core.windows.net",
+        "account-tenant"},
+       {"fs.azure.account.oauth2.client.id.bar.dfs.core.windows.net",
+        "account-client"}},
+      false);
+  auto clientProvider = ManagedIdentityAzureClientProvider();
+
+  const auto accountPath =
+      std::make_shared<AbfsPath>("abfss://abc@bar.dfs.core.windows.net/file");
+  EXPECT_EQ(
+      clientProvider.tenantIdAndClientId(accountPath, config),
+      std::make_pair<std::string, std::string>(
+          "account-tenant", "account-client"));
+  EXPECT_EQ(
+      clientProvider.getReadFileClient(accountPath, config)->getUrl(),
+      "https://bar.blob.core.windows.net/abc/file");
+  EXPECT_EQ(
+      clientProvider.getWriteFileClient(accountPath, config)->getUrl(),
+      "https://bar.blob.core.windows.net/abc/file");
+
+  const auto globalPath =
+      std::make_shared<AbfsPath>("abfss://abc@foo.dfs.core.windows.net/file");
+  EXPECT_EQ(
+      clientProvider.tenantIdAndClientId(globalPath, config),
+      std::make_pair<std::string, std::string>(
+          "global-tenant", "global-client"));
+}
+
 TEST(AzureClientProviderTest, sharedKey) {
   const config::ConfigBase config(
       {{"fs.azure.account.key.efg.dfs.core.windows.net", "123"},

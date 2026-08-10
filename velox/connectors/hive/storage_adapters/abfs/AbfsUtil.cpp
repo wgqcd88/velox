@@ -16,7 +16,10 @@
 
 #include "velox/connectors/hive/storage_adapters/abfs/AbfsUtil.h"
 
+#include <folly/String.h>
+
 #include <optional>
+#include <unordered_map>
 
 #include "velox/common/config/Config.h"
 #include "velox/connectors/hive/storage_adapters/abfs/AbfsPath.h"
@@ -29,6 +32,15 @@ std::string resolveAuthType(
     const config::ConfigBase& config,
     const std::string& authType,
     std::optional<std::string_view> accountNameWithSuffix) {
+  auto normalizedAuthType = authType;
+  folly::toLowerAscii(normalizedAuthType);
+  if (normalizedAuthType == "wi") {
+    return kAzureWorkloadIdentityAuthType;
+  }
+  if (normalizedAuthType == "mi" ||
+      authType == kAzureMsiTokenProvider) {
+    return kAzureManagedIdentityAuthType;
+  }
   if (authType != kAzureOAuthAuthType) {
     return authType;
   }
@@ -47,6 +59,10 @@ std::string resolveAuthType(
       providerType.value() == kAzureWorkloadIdentityTokenProvider) {
     return kAzureWorkloadIdentityAuthType;
   }
+  if (providerType.has_value() &&
+      providerType.value() == kAzureMsiTokenProvider) {
+    return kAzureManagedIdentityAuthType;
+  }
   return authType;
 }
 
@@ -54,33 +70,55 @@ std::string resolveAuthType(
 
 std::vector<CacheKey> extractCacheKeyFromConfig(
     const config::ConfigBase& config) {
-  std::vector<CacheKey> cacheKeys;
-  constexpr std::string_view authTypePrefix{kAzureAccountAuthType};
-  const auto accountAuthTypePrefix = fmt::format("{}.", authTypePrefix);
-  for (const auto& [key, value] : config.rawConfigs()) {
-    if (key.find(accountAuthTypePrefix) != 0) {
-      continue;
+  std::unordered_map<std::string, std::string> accountAuthTypes;
+  const auto veloxGlobalAuthType =
+      config.get<std::string>(kVeloxAzureAuthType);
+
+  const auto addAccountAuthTypes = [&](const char* authTypeKey, bool overwrite) {
+    const auto accountAuthTypePrefix = fmt::format("{}.", authTypeKey);
+    for (const auto& [key, value] : config.rawConfigs()) {
+      if (key.find(accountAuthTypePrefix) != 0) {
+        continue;
+      }
+      const auto remaining =
+          std::string_view(key).substr(accountAuthTypePrefix.size());
+      const auto dot = remaining.find(".");
+      VELOX_USER_CHECK_NE(
+          dot,
+          std::string_view::npos,
+          "Invalid Azure account auth type key: {}",
+          key);
+      const auto accountName = std::string(remaining.substr(0, dot));
+      const auto resolvedAuthType = resolveAuthType(config, value, remaining);
+      if (overwrite) {
+        accountAuthTypes.insert_or_assign(accountName, resolvedAuthType);
+      } else {
+        accountAuthTypes.emplace(accountName, resolvedAuthType);
+      }
     }
-    // Extract the accountName after "fs.azure.account.auth.type.".
-    auto remaining =
-        std::string_view(key).substr(accountAuthTypePrefix.size());
-    auto dot = remaining.find(".");
-    VELOX_USER_CHECK_NE(
-        dot,
-        std::string_view::npos,
-        "Invalid Azure account auth type key: {}",
-        key);
-    cacheKeys.emplace_back(CacheKey{
-        remaining.substr(0, dot),
-        resolveAuthType(config, value, remaining)});
+  };
+
+  // A global Velox setting supersedes all Hadoop account-specific settings.
+  if (!veloxGlobalAuthType.has_value()) {
+    addAccountAuthTypes(kAzureAccountAuthType, false);
+  }
+  addAccountAuthTypes(kVeloxAzureAuthType, true);
+
+  std::vector<CacheKey> cacheKeys;
+  cacheKeys.reserve(accountAuthTypes.size() + 1);
+  for (const auto& [accountName, authType] : accountAuthTypes) {
+    cacheKeys.emplace_back(accountName, authType);
   }
 
-  if (const auto globalAuthType =
-          config.get<std::string>(kAzureAccountAuthType)) {
+  if (veloxGlobalAuthType.has_value()) {
     cacheKeys.emplace_back(
-        CacheKey{
-            "",
-            resolveAuthType(config, globalAuthType.value(), std::nullopt)});
+        "",
+        resolveAuthType(config, veloxGlobalAuthType.value(), std::nullopt));
+  } else if (const auto globalAuthType =
+                 config.get<std::string>(kAzureAccountAuthType)) {
+    cacheKeys.emplace_back(
+        "",
+        resolveAuthType(config, globalAuthType.value(), std::nullopt));
   }
   return cacheKeys;
 }

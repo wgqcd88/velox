@@ -115,4 +115,30 @@ class WorkloadIdentityAzureClientProvider final : public AzureClientProvider {
   std::shared_ptr<Azure::Core::Credentials::TokenCredential> tokenCredential_;
 };
 
+// AzureClientProvider for Azure Managed Identity authentication.
+class ManagedIdentityAzureClientProvider final : public AzureClientProvider {
+ public:
+  std::unique_ptr<AzureBlobClient> getReadFileClient(
+      const std::shared_ptr<AbfsPath>& abfsPath,
+      const config::ConfigBase& config) override;
+
+  std::unique_ptr<AzureDataLakeFileClient> getWriteFileClient(
+      const std::shared_ptr<AbfsPath>& abfsPath,
+      const config::ConfigBase& config) override;
+
+  // Test only.
+  std::pair<std::string, std::string> tenantIdAndClientId(
+      const std::shared_ptr<AbfsPath>& abfsPath,
+      const config::ConfigBase& config);
+
+ private:
+  void init(
+      const std::shared_ptr<AbfsPath>& abfsPath,
+      const config::ConfigBase& config);
+
+  std::string tenantId_;
+  std::string clientId_;
+  std::shared_ptr<Azure::Core::Credentials::TokenCredential> tokenCredential_;
+};
+
 } // namespace facebook::velox::filesystems

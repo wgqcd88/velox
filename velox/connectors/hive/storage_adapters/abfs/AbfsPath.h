@@ -28,13 +28,18 @@ namespace facebook::velox::filesystems {
 // This is used to specify the Azurite endpoint in testing.
 static constexpr const char* kAzureBlobEndpoint{"fs.azure.blob-endpoint"};
 
-// The authentication mechanism is set in `fs.azure.account.auth.type` or its
-// account-specific variant, which takes precedence over the global setting.
-// The supported values are SharedKey, OAuth, SAS and WorkloadIdentity. Workload
-// Identity can also be configured using OAuth with Hadoop's
-// WorkloadIdentityTokenProvider.
+// The authentication mechanism is set in `velox.azure.auth.type` or
+// `fs.azure.account.auth.type`, with optional account suffixes. Velox settings
+// take precedence over Hadoop settings, and account-specific Velox settings
+// take precedence over the global Velox setting.
+// The supported values are SharedKey, OAuth, SAS, WorkloadIdentity and
+// ManagedIdentity. The aliases "wi" and "mi" are also supported. Workload and
+// Managed Identity can additionally use Hadoop's corresponding OAuth token
+// provider class.
 static constexpr const char* kAzureAccountAuthType =
     "fs.azure.account.auth.type";
+
+static constexpr const char* kVeloxAzureAuthType = "velox.azure.auth.type";
 
 static constexpr const char* kAzureAccountKey = "fs.azure.account.key";
 
@@ -42,6 +47,9 @@ static constexpr const char* kAzureSASKey = "fs.azure.sas.fixed.token";
 
 static constexpr const char* kAzureAccountOAuth2ClientId =
     "fs.azure.account.oauth2.client.id";
+
+static constexpr const char* kAzureAccountOAuth2MsiTenant =
+    "fs.azure.account.oauth2.msi.tenant";
 
 static constexpr const char* kAzureAccountOAuth2ClientSecret =
     "fs.azure.account.oauth2.client.secret";
@@ -57,6 +65,9 @@ static constexpr const char* kAzureAccountOAuthProviderType =
 static constexpr const char* kAzureWorkloadIdentityTokenProvider =
     "org.apache.hadoop.fs.azurebfs.oauth2.WorkloadIdentityTokenProvider";
 
+static constexpr const char* kAzureMsiTokenProvider =
+    "org.apache.hadoop.fs.azurebfs.oauth2.MsiTokenProvider";
+
 static constexpr const char* kAzureSharedKeyAuthType = "SharedKey";
 
 static constexpr const char* kAzureOAuthAuthType = "OAuth";
@@ -65,6 +76,9 @@ static constexpr const char* kAzureSASAuthType = "SAS";
 
 static constexpr const char* kAzureWorkloadIdentityAuthType =
     "WorkloadIdentity";
+
+static constexpr const char* kAzureManagedIdentityAuthType =
+    "ManagedIdentity";
 
 // For performance, re - use SAS tokens until the expiry is within this number
 // of seconds.

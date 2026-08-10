@@ -88,9 +88,13 @@ void registerAzureClientProvider(const config::ConfigBase& config) {
       factories.insert_or_assign(accountName, [](const std::string&) {
         return std::make_unique<WorkloadIdentityAzureClientProvider>();
       });
+    } else if (authType == kAzureManagedIdentityAuthType) {
+      factories.insert_or_assign(accountName, [](const std::string&) {
+        return std::make_unique<ManagedIdentityAzureClientProvider>();
+      });
     } else {
       VELOX_USER_FAIL(
-          "Unsupported auth type {}, supported auth types are SharedKey, OAuth, SAS and WorkloadIdentity.",
+          "Unsupported auth type {}, supported auth types are SharedKey, OAuth, SAS, WorkloadIdentity and ManagedIdentity.",
           authType);
     }
   }
